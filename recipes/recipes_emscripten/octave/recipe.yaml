@@ -1,3 +1,4 @@
+# built in a different repo
 context:
   name: octave
   version: 9.4.0
@@ -10,19 +11,27 @@ source:
   url: https://ftp.gnu.org/gnu/${{ name }}/${{ name }}-${{ version }}.tar.gz
   sha256: da9481205bfa717660b7d4a16732d8b2d58aadceab4993d41242a8e2848ea6c1
   patches:
-    # - 0001-Force-detection-of-shared-libs.patch  # Removed - this forces shared libs which breaks WASM
+    # The gejsv patch is no longer needed as we are building a newer LAPACK from source.
+    # - 0004-disable-gejsv.patch
     - 0002-Remove-COMMON.patch
     - 0003-Delete-odepack.patch
 
 build:
-  number: 0
+  number: 4
 
 requirements:
   build:
     - ${{ compiler('c') }}
     - ${{ compiler('cxx') }}
-    - f2c  # Native f2c translator tool for build environment
+    # f2c is now built from source in build.sh
+    # - f2c
     - make
+    - curl
+    - tar
+    - git
+    - autoconf
+    - automake
+    - unzip
     - libtool>=2.5.4
     - pkg-config
     - grep
@@ -32,8 +41,10 @@ requirements:
     - bison
     - gperf
   host:
-    - libf2c  # WebAssembly f2c runtime library for linking
-    - openblas  # F2C-based OpenBLAS instead of openblas-flang
+    # libf2c is now built from source in build.sh
+    # - libf2c
+    # We no longer use a pre-built clapack. It will be built from source.
+    # - clapack
     - pcre2>=10.43
   run_exports:
     - ${{ pin_subpackage('octave', upper_bound='x') }}

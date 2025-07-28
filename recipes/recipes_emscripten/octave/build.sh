@@ -1,226 +1,212 @@
 #!/bin/bash
+# built in a different repo
+set -e # Exit on error
 
-# Add shebang for proper shell detection
-set -e  # Exit on error
+# --- Custom Toolchain Setup ---
+# The core of this strategy is to build the exact same f2c and fort77 wrapper
+# as the reference Dockerfile. This ensures 100% toolchain compatibility.
 
+mkdir -p local_bin
+export PATH=${PWD}/local_bin:${PATH}
+
+# 1. Build f2c from source
+echo "--- Building f2c from source ---"
+curl -L https://www.netlib.org/f2c/src.tgz -o f2c.tar.gz
+mkdir -p f2c
+tar -zxf f2c.tar.gz -C f2c
+cd f2c
+# We must build f2c with the native compiler, not emcc.
+# Unsetting LDFLAGS in a subshell prevents emscripten flags from leaking into this native build.
+(unset LDFLAGS && make -j${CPU_COUNT} -C src -f makefile.u all)
+cp src/f2c ../local_bin/
+cd ..
+
+
+# 2. Build the fort77 wrapper script
+echo "--- Building fort77 wrapper ---"
+git clone https://salsa.debian.org/debian/fort77.git
+cd fort77
+autoreconf -fi
+# This is a host tool, so it must be built with the native compiler, not emmake.
+make F2C=${PWD}/../local_bin/f2c fort77
+cp fort77 ../local_bin/
+cd ..
+
+# Set F77 to our newly built wrapper with full path
+export F77="${PWD}/local_bin/fort77"
+export FC="${PWD}/local_bin/fort77"
+
+
+# 3. Build libf2c from source (critical for consistency)
+echo "--- Building libf2c from source ---"
+# Using the same version as the Dockerfile
+curl -L https://www.netlib.org/f2c/libf2c.zip -o libf2c.zip
+unzip -q libf2c.zip -d libf2c
+cd libf2c
+# Build static library for our static build
+emmake make -j${CPU_COUNT} all
+cp libf2c.a ../local_bin/
+# Also copy the header
+cp f2c.h ../local_bin/
+cd ..
+
+
+# --- Build LAPACK 3.4.2 from Source ---
+# With our new toolchain, this build should now succeed.
+
+LAPACK_VERSION="3.4.2"
+echo "--- Downloading and building LAPACK ${LAPACK_VERSION} ---"
+curl -L http://www.netlib.org/lapack/lapack-${LAPACK_VERSION}.tgz -o lapack.tgz
+tar -zxf lapack.tgz
+cd lapack-${LAPACK_VERSION}
+
+# Create a make.inc file for Emscripten
+cat > make.inc << 'MAKEINC_EOF'
+SHELL = /bin/sh
+FORTRAN  = $(F77)
+OPTS     = -O0
+DRVOPTS  = $(OPTS)
+NOOPT    = -O0
+LOADER   = $(FORTRAN)
+LOADOPTS =
+TIMER    =
+ARCH     = emar
+ARCHFLAGS= cr
+RANLIB   = emranlib
+BLASLIB      = ../../librefblas.a
+LAPACKLIB    = ../../liblapack.a
+MAKEINC_EOF
+
+# Build BLAS library
+echo "Building BLAS..."
+emmake make -j${CPU_COUNT} F77=${F77} INCDIR=${PWD}/../local_bin blaslib
+cp blas_LINUX.a ../librefblas.a
+
+# Build LAPACK library
+echo "Building LAPACK..."
+emmake make -j${CPU_COUNT} F77=${F77} INCDIR=${PWD}/../local_bin lapacklib
+cp lapack_LINUX.a ../liblapack.a
+
+cd ..
+echo "--- LAPACK build complete ---"
+
+
+# --- Configure Octave ---
 # Remove spaces in `-s OPTION` from emscripten to avoid confusion
 export LDFLAGS="$(echo "${LDFLAGS}" |  sed -E 's/-s +/-s/g')"
-
-# Set up F2C for Fortran compilation
-# Create a wrapper that uses f2c to convert Fortran to C, then compiles with emcc
-cat > f2c-emcc << 'EOF'
-#!/bin/bash
-# Wrapper to compile Fortran files using f2c and emcc
-# This mimics a Fortran compiler but uses f2c + emcc internally
-
-output=""
-compile_only=0
-source_file=""
-other_args=()
-
-# Parse arguments
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        -c)
-            compile_only=1
-            ;;
-        -o)
-            shift
-            output="$1"
-            ;;
-        *.f|*.F)
-            source_file="$1"
-            ;;
-        *)
-            other_args+=("$1")
-            ;;
-    esac
-    shift
-done
-
-if [[ -n "$source_file" ]]; then
-    # Get base name and directory
-    source_dir=$(dirname "$source_file")
-    source_base=$(basename "$source_file" .f)
-    source_base=$(basename "$source_base" .F)
-    
-    # Handle output path
-    if [[ -n "$output" ]]; then
-        # If output has a directory component, use it as-is
-        output_dir=$(dirname "$output")
-        output_base=$(basename "$output")
-    else
-        # Default output in same directory as source
-        output_dir="$source_dir"
-        output_base="${source_base}.o"
-        output="${output_dir}/${output_base}"
-    fi
-    
-    # Convert Fortran to C in the source directory
-    cd "$source_dir"
-    f2c -a -C++ -Nn802 -Nx400 "$(basename "$source_file")"
-    cd - > /dev/null
-    
-    # Fix f2c-generated code that uses (...) instead of (void) or proper variadic syntax
-    # This is a known issue with f2c generating invalid C99+ code
-    sed -i 's/(\.\.\.)/(void)/g' "${source_dir}/${source_base}.c"
-    
-    # Compile C to object
-    emcc -c "${source_dir}/${source_base}.c" -I$PREFIX/include -o "$output" "${other_args[@]}"
-    
-    # Clean up
-    rm -f "${source_dir}/${source_base}.c"
-fi
-EOF
-chmod +x f2c-emcc
-export F77="${PWD}/f2c-emcc"
-export FC="${PWD}/f2c-emcc"
-
-# Set up flags for C/C++ compilation
-export CFLAGS="${CFLAGS} --target=wasm32-unknown-emscripten"
-export CXXFLAGS="${CXXFLAGS} --target=wasm32-unknown-emscripten"
-
-# Octave overrides xerbla from Lapack.
-# Both Blas and Lapack define xerbla zerbla_array lsame.
 export LDFLAGS="${LDFLAGS} -Wl,--allow-multiple-definition"
 
-# Force disable pthread
+# From the reference Dockerfile: critical flags
+export LDFLAGS="${LDFLAGS} -s ERROR_ON_UNDEFINED_SYMBOLS=0 -L${PWD}/local_bin -O0"
+export CFLAGS="${CFLAGS} -I${PWD}/local_bin -O0"
+export CXXFLAGS="${CXXFLAGS} -std=c++11 -I${PWD}/local_bin -O0 -fwasm-exceptions"
+export FFLAGS="-I${PWD}/local_bin -O0 -E"
+export FLIBS=""
+
+# Emscripten-specific environment variables from Dockerfile
+export EMCC_FORCE_STDLIBS=1
+export EMCONFIGURE_JS=1
+export BUILD_EXEEXT=.js
+
+# Force disable pthread for WebAssembly compatibility
 sed -i 's/ax_pthread_ok=yes/ax_pthread_ok=no/' configure
 export ac_cv_header_pthread_h=no
 
-# We need F2C calling convention with int return for F2C-compiled code
-sed -i 's/#define F77_RET_T.*/#define F77_RET_T int/' liboctave/util/f77-fcn.h
-sed -i 's/#define F77_RETURN.*/#define F77_RETURN(retval) return 0;/' liboctave/util/f77-fcn.h
-
-# Forcing autotools to NOT rerun after patches
-find . -exec touch -t $(date +%Y%m%d%H%M) {} \;
-
 BUILD="x86_64-unknown-linux-gnu"
-# Pretend to build for linux because autotools does not know about emscripten
-HOST="wasm32-unknown-linux-gnu"
+HOST="wasm32-local-emscripten"
 
-# Force Fortran name mangling convention for F2C
-export ac_cv_f77_mangling="lower case, underscore, no extra underscore"
+# Regenerate configure script (from Dockerfile)
+echo "Regenerating configure script..."
+rm -f configure
+autoreconf
 
-# Set BLAS/LAPACK paths explicitly
-export BLAS_LIBS="-L$PREFIX/lib -lopenblas"
-export LAPACK_LIBS="-L$PREFIX/lib -lopenblas"
+# Manually set FORTRAN name-mangling to use lower-case and single underscore
+sed -i -e 's/(name,NAME) name"/(name,NAME) name ## _"/g' configure
 
-# Patch configure to bypass broken LAPACK detection
-sed -i 's/if test $ax_blas_ok = no || test $ax_lapack_ok = no; then/if false; then # PATCHED/' configure
+# Point to our custom-built LAPACK/BLAS and libf2c
+BLAS_LIBS_PATH="${PWD}/librefblas.a"
+F2C_LIBS_PATH="${PWD}/local_bin/libf2c.a -lm"
 
-# Remove the error that requires shared libraries
-sed -i 's/as_fn_error \$? "Building shared libraries is required!" "\$LINENO" 5/# Removed shared library requirement for WASM/' configure
+export BLAS_LIBS="${BLAS_LIBS_PATH} ${F2C_LIBS_PATH}"
+export LAPACK_LIBS="${PWD}/liblapack.a ${BLAS_LIBS}"
 
-# Also ensure that SHARED_LIBS is set to no when --disable-shared is used
-sed -i '/^enable_shared=yes$/d' configure
-sed -i '/^SHARED_LIBS=yes$/d' configure
-
-# Set F2C library flags
-export FLIBS="-L$PREFIX/lib -lf2c"
-
-# Fix OpenBLAS static library naming
-# The static library has a specific architecture name, but we need libopenblas.a
-if [ -f "$PREFIX/lib/libopenblas_riscv64_generic-r0.3.26.a" ]; then
-    ln -sf "$PREFIX/lib/libopenblas_riscv64_generic-r0.3.26.a" "$PREFIX/lib/libopenblas.a"
-elif ls $PREFIX/lib/libopenblas_*_generic-r*.a 1> /dev/null 2>&1; then
-    # Find any OpenBLAS static library and link it
-    OPENBLAS_STATIC=$(ls $PREFIX/lib/libopenblas_*_generic-r*.a | head -1)
-    ln -sf "$OPENBLAS_STATIC" "$PREFIX/lib/libopenblas.a"
-fi
-
-emconfigure ./configure \
-   --prefix="${PREFIX}" \
-   --build="${BUILD}"\
-   --host="${HOST}" \
-   --disable-dependency-tracking \
-   --enable-fortran-calling-convention="f2c" \
-   --disable-shared \
-   --enable-static \
-   --disable-64 \
-   --disable-dlopen \
-   --disable-dl \
-   --disable-dynamic-linking \
-   --disable-rpath \
-   --disable-openmp \
-   --disable-threads \
-   --disable-fftw-threads \
-   --disable-readline \
-   --disable-docs \
-   --disable-java \
-   --disable-rapidjson \
-   --with-blas="-lopenblas" \
-   --with-lapack="-lopenblas" \
-   --with-pcre2 \
-   --with-pcre2-includedir="${PREFIX}/include" \
-   --with-pcre2-libdir="${PREFIX}/lib" \
-   --without-pcre \
-   --without-qt \
-   --without-qrupdate \
-   --without-arpack \
-   --without-curl \
-   --without-fftw3 \
-   --without-fftw3f \
-   --without-hdf5 \
-   --without-opengl \
-   --without-x \
-   --without-sndfile \
-   --without-portaudio \
-   --without-freetype \
-   --without-fontconfig \
-   --without-fltk \
-   --without-sundials_ida \
-   --without-sundials_nvecserial \
-   --without-sundials_sunlinsolklu \
-   --without-qhull_r \
-   --without-cxsparse \
-   --without-ccolamd \
-   --without-z \
-   --without-bz2 \
-   --without-magick \
-   --without-spqr \
-   --without-glpk \
-   --without-framework-carbon \
-   || cat config.log || exit 1
-
-# Disable building of .oct files (dynamic modules) for WebAssembly
-# Replace the problematic .oct generation rule with a simple touch command
-sed -i '/^%.oct : %.la$/,/^$/c\
-%.oct : %.la\
-\t$(AM_V_GEN)touch $@' Makefile
-
-# Create thread stubs if needed (Octave might still expect these even with threads disabled)
+# Create thread stubs for disabled threading
+echo "Creating thread stubs..."
 cat > thread_stubs.cpp << 'EOF'
-// Thread stubs for disabled threading
 namespace octave {
-  class thread {
-  public:
-    static void init();
-    static bool is_thread();
-  };
-  
-  void thread::init() { }
-  bool thread::is_thread() { return false; }
+    class thread {
+    public:
+        static void init();
+        static bool is_thread();
+    };
+    void thread::init() { }
+    bool thread::is_thread() { return false; }
 }
 EOF
 em++ -c thread_stubs.cpp -o thread_stubs.o
-
-# Create a static library with all stubs
-ar rcs liboctave_stubs.a thread_stubs.o
-
-# Add stubs to the build
+emar rcs liboctave_stubs.a thread_stubs.o
 export LIBS="${LIBS} ${PWD}/liboctave_stubs.a"
 
-# Modify the Makefile to include our stubs in LIBS
-sed -i "s|^LIBS = .*|LIBS = -lm ${PWD}/liboctave_stubs.a|" Makefile
+# Configure Octave
+./configure --prefix=$PREFIX \
+            --build=${BUILD} \
+            --host=${HOST} \
+            --disable-dependency-tracking \
+            --enable-fortran-calling-convention="f2c" \
+            --disable-shared \
+            --enable-static \
+            --disable-64 \
+            --disable-dlopen \
+            --disable-dl \
+            --disable-dynamic-linking \
+            --disable-rpath \
+            --disable-openmp \
+            --disable-threads \
+            --disable-fftw-threads \
+            --disable-readline \
+            --disable-docs \
+            --disable-java \
+            --disable-rapidjson \
+            --with-blas="${BLAS_LIBS}" \
+            --with-lapack="${LAPACK_LIBS}" \
+            --with-pcre2 \
+            --with-pcre2-includedir=$PREFIX/include \
+            --with-pcre2-libdir=$PREFIX/lib \
+            --without-pcre \
+            --without-qt \
+            --without-qrupdate \
+            --without-arpack \
+            --without-curl \
+            --without-fftw3 \
+            --without-fftw3f \
+            --without-hdf5 \
+            --without-opengl \
+            --without-x \
+            --without-sndfile \
+            --without-portaudio \
+            --without-freetype \
+            --without-fontconfig \
+            --without-fltk \
+            --without-sundials_ida \
+            --without-sundials_nvecserial \
+            --without-sundials_sunlinsolklu \
+            --without-qhull_r \
+            --without-cxsparse \
+            --without-ccolamd \
+            --without-z \
+            --without-bz2 \
+            --without-magick \
+            --without-spqr \
+            --without-glpk \
+            --without-framework-carbon
 
-# Build with reduced parallelism to avoid OOM
-emmake make --jobs 7
+# --- Post-Configure Patches ---
+# Disable .oct file generation (unsupported in WASM)
+echo "Patching Makefiles to disable .oct file generation..."
+find . -name "Makefile" -exec sed -i '/^%.oct : %.la$/,/^$/c\
+%.oct : %.la\
+\t$(AM_V_GEN)touch $@' {} \;
 
-# Fix the install-oct target for static builds
-# The default install-oct expects dlname to exist in .la files, but static builds don't have it
-# We'll modify it to skip the dlname check and just touch empty .oct files
-sed -i '/error: dlname is empty/d' Makefile
-sed -i 's/exit 1;/touch $PREFIX\/lib\/octave\/9.4.0\/oct\/wasm32-unknown-linux-gnu\/`echo $f | $BUILD_PREFIX\/bin\/\/sed '\''s,^lib,,; s,\.la$,.oct,'\''`;/' Makefile
-
+# --- Build and Install ---
+emmake make -j${CPU_COUNT}
 emmake make install

@@ -25,8 +25,35 @@ export CFLAGS="CFLAGS -DNO_TRUNCATE"
 
 emmake make -j ${CPU_COUNT} blaslib lapacklib
 
+# Copy and compile the gejsv stubs
+cp $RECIPE_DIR/gejsv_stubs.c .
+emcc -c gejsv_stubs.c -I./INCLUDE -I./F2CLIBS/libf2c -o gejsv_stubs.o
+
 mkdir -p ${PREFIX}/lib
-emcc blas_WA.a lapack_WA.a F2CLIBS/libf2c.a -sSIDE_MODULE -o ${PREFIX}/lib/clapack_all.so
+
+# Create a temporary directory to combine archives
+mkdir -p clapack_all
+cd clapack_all
+
+# Extract all object files from the archives
+emar x ../blas_WA.a
+emar x ../lapack_WA.a
+emar x ../F2CLIBS/libf2c.a
+
+# Copy the gejsv stubs
+cp ../gejsv_stubs.o .
+
+# Create a single, flat static library from all the object files
+emar rcs ../libclapack_all.a *.o
+
+# Move back to the parent directory and clean up
+cd ..
+rm -rf clapack_all
+
+# Copy the new static library to the installation directory
+cp libclapack_all.a ${PREFIX}/lib/
+
+# emcc blas_WA.a lapack_WA.a F2CLIBS/libf2c.a -sSIDE_MODULE -o ${PREFIX}/lib/clapack_all.so
 
 mkdir -p ${PREFIX}/include
 cp INCLUDE/clapack.h ${PREFIX}/include
