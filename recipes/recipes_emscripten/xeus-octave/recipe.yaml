@@ -29,19 +29,12 @@ requirements:
     - make
     - pkg-config
   host:
-    # Core dependencies
-    - octave ==9.4.0  # This already contains CLAPACK symbols
+    - octave-build-static ==0.1.0
     - xeus-lite >=3.0.0,<4.0
     - xeus >=5.0.0,<6.0
     - nlohmann_json
-    - libpng
     - zlib
-    # Dependencies required by Octave
-    - pcre2 ==10.45
-    - libf2c
-    # CLAPACK is needed for headers but MUST NOT be linked directly
-    # The build script will hide libclapack_all.a to prevent linking
-    - clapack ==3.2.1  # Required for headers only - DO NOT LINK
+    - libpng
 
 about:
   homepage: https://github.com/jupyter-xeus/xeus-octave
@@ -50,17 +43,13 @@ about:
   summary: 'A Jupyter kernel for GNU Octave, compiled for WebAssembly.'
   description: |
     xeus-octave is a Jupyter kernel for GNU Octave based on the xeus C++ library.
-    This WebAssembly build uses Octave compiled with CLAPACK (f2c-based LAPACK).
-    IMPORTANT: CLAPACK symbols are provided through Octave's static libraries,
-    not linked directly to avoid duplicate symbol errors.
+    This WebAssembly build uses a self-contained Octave library compiled with
+    CLAPACK (f2c-based LAPACK).
 
 extra:
   recipe-maintainers:
     - Your Name Here
   notes: |
     Critical build notes:
-    - Octave must be built with CLAPACK using f2c calling conventions
-    - CLAPACK is included as a dependency for headers only
-    - The build script hides libclapack_all.a to prevent direct linking
-    - All BLAS/LAPACK symbols are provided through Octave's static libraries
-    - Function signature mismatches occur if CLAPACK is linked directly 
+    - The octave package is now self-contained and provides all BLAS/LAPACK symbols.
+    - It is no longer necessary to link CLAPACK directly. 
