@@ -2,7 +2,7 @@ diff --git a/0001-changes_since_d6046e5.patch b/0001-changes_since_d6046e5.patch
 new file mode 100644
 index 0000000..e69de29
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index a710db9..50a9221 100644
+index a710db9..0bfef21 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -11,6 +11,14 @@ project(xeus-octave)
@@ -66,7 +66,7 @@ index a710db9..50a9221 100644
  # Configuration
  # =============
  
-@@ -73,10 +120,16 @@ option(
+@@ -73,13 +120,25 @@ option(
  
  set(xeus_zmq_REQUIRED_VERSION 3.0.0)
  
@@ -85,8 +85,18 @@ index a710db9..50a9221 100644
 +endif()
  
  find_package(PkgConfig REQUIRED)
- pkg_check_modules(octinterp REQUIRED IMPORTED_TARGET GLOBAL octinterp)
-@@ -126,6 +179,14 @@ set(
+-pkg_check_modules(octinterp REQUIRED IMPORTED_TARGET GLOBAL octinterp)
++if(EMSCRIPTEN)
++    # For WASM, only get include dirs to avoid linker conflicts
++    pkg_check_modules(octinterp REQUIRED octinterp)
++else()
++    # For native, get the full imported target for includes and linking
++    pkg_check_modules(octinterp REQUIRED IMPORTED_TARGET GLOBAL octinterp)
++endif()
+ 
+ # Flags =====
+ include(CheckCXXCompilerFlag)
+@@ -126,6 +185,14 @@ set(
      src/output.cpp
  )
  
@@ -101,7 +111,7 @@ index a710db9..50a9221 100644
  set(XEUS_OCTAVE_MAIN_SRC src/main.cpp)
  
  # Targets and link - Macros
-@@ -180,10 +241,10 @@ macro(xeus_octave_set_kernel_options target_name)
+@@ -180,10 +247,10 @@ macro(xeus_octave_set_kernel_options target_name)
      else()
          target_link_libraries(${target_name} PRIVATE xeus-octave-static)
      endif()
@@ -116,13 +126,23 @@ index a710db9..50a9221 100644
  endmacro()
  
  # Scripts directory for xeus-octave
-@@ -228,12 +289,23 @@ macro(xeus_octave_create_target target_name linkage output_name)
+@@ -225,15 +292,32 @@ macro(xeus_octave_create_target target_name linkage output_name)
+         PUBLIC $<BUILD_INTERFACE:${XEUS_OCTAVE_INCLUDE_DIR}> $<INSTALL_INTERFACE:include>
+     )
+ 
++    if(EMSCRIPTEN)
++        target_include_directories(${target_name} PUBLIC ${octinterp_INCLUDE_DIRS})
++    endif()
++
      target_link_libraries(
          ${target_name}
-         PUBLIC PkgConfig::octinterp
+-        PUBLIC PkgConfig::octinterp
 -        PRIVATE glad::glad glfw PNG::PNG
 +        PRIVATE PNG::PNG
      )
++    if(NOT EMSCRIPTEN)
++        target_link_libraries(${target_name} PUBLIC PkgConfig::octinterp)
++    endif()
 +    if(NOT EMSCRIPTEN)
 +        target_link_libraries(${target_name} PRIVATE glad::glad glfw)
 +    endif()
@@ -143,20 +163,17 @@ index a710db9..50a9221 100644
      endif()
  
      if(WIN32 OR CYGWIN)
-@@ -276,6 +348,39 @@ if(XEUS_OCTAVE_BUILD_EXECUTABLE)
+@@ -276,6 +360,32 @@ if(XEUS_OCTAVE_BUILD_EXECUTABLE)
      xeus_octave_set_kernel_options(xoctave)
  endif()
  
 +if(EMSCRIPTEN)
 +    find_package(xeus-lite REQUIRED)
-+    add_executable(xoctave src/main_emscripten_kernel.cpp)
++        add_executable(xoctave src/main_emscripten_kernel.cpp)
++    target_include_directories(xoctave PUBLIC ${octinterp_INCLUDE_DIRS})
 +    target_link_libraries(xoctave PRIVATE xeus-lite)
 +    
-+    # Add the explicit link directories for Octave and dependency libraries
-+    target_link_directories(xoctave 
-+        PUBLIC ${CMAKE_PREFIX_PATH}/lib/octave/9.4.0
-+        PUBLIC ${CMAKE_PREFIX_PATH}/lib
-+    )
++    # target_link_directories for Octave removed to defer to external build script flags
 +
 +    xeus_octave_set_kernel_options(xoctave)
 +    xeus_wasm_compile_options(xoctave)
@@ -172,18 +189,14 @@ index a710db9..50a9221 100644
 +        PUBLIC "SHELL: --bind"
 +    )
 +    
-+    # Link only against Octave libraries which already contain CLAPACK symbols
-+    # The f2c library is still needed for f2c runtime support
-+    target_link_options(xoctave
-+        PUBLIC "SHELL: -L${CMAKE_PREFIX_PATH}/lib/octave/9.4.0 -L${CMAKE_PREFIX_PATH}/lib -loctinterp -loctave -lf2c"
-+    )
++    # target_link_options for Octave removed to defer to external build script flags
 +endif()
 +
 +
  # Installation
  # ============
  
-@@ -383,3 +488,10 @@ if(XEUS_OCTAVE_BUILD_SHARED)
+@@ -383,3 +493,10 @@ if(XEUS_OCTAVE_BUILD_SHARED)
          DESTINATION ${XEUS_OCTAVE_CMAKECONFIG_INSTALL_DIR}
      )
  endif()

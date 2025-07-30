@@ -26,17 +26,27 @@ This plan is executed in three phases within the `rattler-build` process.
 
 #### **Phase 2: Metadata Repair (`build.sh`)**
 
-*   **Objective:** To find the Octave package's `pkg-config` files after they have been installed into the build environment and fix their hardcoded, non-relocatable paths.
+*   **Objective:** To find the Octave package's `pkg-config` files (`.pc`) and perform a series of `sed` commands to correct malformed paths and linker flags, making them usable in the current build environment.
 *   **Implementation:**
-    1.  The `build.sh` script begins by searching the build environment (`$PREFIX`) for the main `octave.pc` file.
-    2.  It then executes a `sed -i` command to perform an in-place search and replace on the file. This command replaces the hardcoded path from the Docker build (e.g., `/usr/src/octave-wasm/target`) with the `${PREFIX}` variable, which represents the correct, current installation path. This makes the metadata file valid and relocatable.
+    1.  The `build.sh` script first replaces the hardcoded absolute paths from the original Docker build environment with the correct `${PREFIX}` variable.
+    2.  It then corrects malformed library paths (e.g., `/liboctave/liboctave.a`) by converting them into the proper linker-friendly flags (e.g., `-loctave`). This ensures the linker can find the libraries in the search paths provided by the `-L` flags.
 
-#### **Phase 3: Static Library Resolution and Linking (`build.sh`)**
+#### **Phase 2.5: In-Place Library Repair (`build.sh`)**
 
-*   **Objective:** To combine the `xeus-octave` object files with the *entire collection* of Octave's static libraries into a single, final `.wasm` module.
+*   **Objective:** To fix a critical structural issue within the pre-compiled Octave static libraries (`liboctave.a`, `liboctinterp.a`) that makes them incompatible with the WebAssembly linker (`wasm-ld`).
+*   **Core Problem:** The static Octave archives were built improperly, resulting in an "archive within an archive" structure. Instead of being a simple collection of object files (`.o`), they also contain other, fully-formed static libraries (`libcholmod.a`, `libclapack.a`, etc.) bundled inside them. The `wasm-ld` linker cannot process this format.
+*   **Implementation ("Archive Surgery"):**
+    1.  The `build.sh` script creates a temporary directory.
+    2.  It uses the `ar -x` command to extract the *entire* contents of `liboctave.a` and `liboctinterp.a` into this temporary directory.
+    3.  This extraction unpacks both the Octave-specific object files (`.o`) and the incorrectly bundled dependency archives (`.a`).
+    4.  The script then moves the unpacked dependency archives (e.g., `libcholmod.a`, `libclapack.a`) into the main `$PREFIX/lib/` directory, making them available as separate, linkable files.
+    5.  Finally, it uses `ar -r` to rebuild clean versions of `liboctave.a` and `liboctinterp.a` using *only* the object files left in the temporary directory, overwriting the original problematic archives.
+
+#### **Phase 3: Static Library Resolution and Linking (`build.sh` and `CMakeLists.txt`)**
+
+*   **Objective:** To provide the `xeus-octave` CMake build system with the complete and correct set of include paths and linker flags needed to build the final `.wasm` module.
 *   **Implementation:**
-    1.  With the `octave.pc` file now repaired, the script uses the `pkg-config` command-line tool to read it.
-    2.  Crucially, it calls `pkg-config --static --libs octave`. The `--static` flag instructs `pkg-config` to resolve the *entire dependency tree*, including all "private" libraries listed in the `Libs.private` field of the `.pc` file.
-    3.  The output of this command is a single, long string containing the correct linker flags for *every required static library* (e.g., `-L/path/to/libs /path/to/liboctave.a /path/to/libclapack.a ...`).
-    4.  This complete set of linker flags is stored in an environment variable (`OCTAVE_LDFLAGS`).
-    5.  Finally, this variable is passed to the `xeus-octave` `CMake` build system via the `CMAKE_EXE_LINKER_FLAGS` directive. This provides CMake with all the information it needs to perform the final, complex linking operation, resulting in a correctly built and self-contained `xeus-octave.wasm` file. 
+    1.  With the `.pc` files and the static libraries now fully repaired, `build.sh` calls `pkg-config --static --libs octave` to get the complete, correct linker flag string and stores it in the `OCTAVE_LDFLAGS` environment variable.
+    2.  The `CMakeLists.txt` file (modified via a patch) is configured to find the Octave include paths using `pkg_check_modules` and adds them to the compiler flags.
+    3.  Crucially, the `CMakeLists.txt` is also modified to *not* perform its own linking for Octave, ensuring no conflicts.
+    4.  Finally, the `OCTAVE_LDFLAGS` variable is passed directly to the `emcmake` command via the `CMAKE_EXE_LINKER_FLAGS` directive. This provides the linker with the exact, complete, and correct set of libraries it needs to perform the final linking operation. 
