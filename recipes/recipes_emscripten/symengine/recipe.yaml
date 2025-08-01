@@ -12,9 +12,10 @@ source:
     version }}.tar.gz
   patches:
    - patches/shared.patch
+   - patches/namespace.patch
 
 build:
-  number: 3
+  number: 6
 
 requirements:
   build:
@@ -22,6 +23,8 @@ requirements:
   - cmake
   - make
   host:
+  - boost-cpp
+  run:
   - boost-cpp
 about:
   homepage: https://symengine.org/

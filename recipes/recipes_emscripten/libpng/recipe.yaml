@@ -1,6 +1,6 @@
 context:
   name: libpng
-  version: 1.6.48
+  version: 1.6.50
 
 package:
   name: ${{ name }}
@@ -8,7 +8,7 @@ package:
 
 source:
   url: http://downloads.sourceforge.net/project/${{ name }}/libpng16/${{ version }}/${{ name }}-${{ version }}.tar.gz
-  sha256: 68f3d83a79d81dfcb0a439d62b411aa257bb4973d7c67cd1ff8bdf8d011538cd
+  sha256: 708f4398f996325819936d447f982e0db90b6b8212b7507e7672ea232210949a
 
 build:
   number: 0
@@ -33,7 +33,6 @@ tests:
 about:
   license: zlib-acknowledgement
   license_file: LICENSE
-  license_url: http://www.libpng.org/pub/png/src/libpng-LICENSE.txt
   summary: PNG reference library
   description: |
     libpng is the official PNG reference library. It supports almost all PNG
