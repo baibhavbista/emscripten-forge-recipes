@@ -14,3 +14,5 @@ output/
 
 # emscripten forge install
 emscripten_forge_emsdk_install/
+
+sources/
