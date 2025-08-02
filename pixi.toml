@@ -79,7 +79,7 @@ cmd = [
     "-c", "microsoft",
     "-c", "conda-forge",
     "--target-platform", "emscripten-wasm32",
-    "--skip-existing", "all",
+    # "--skip-existing", "all",
     "-m", "variant.yaml",
     "--recipe"
 ]

@@ -1,0 +1,29 @@
+context:
+  name: octave-build-static
+  version: 0.1.0
+
+package:
+  name: ${{ name }}
+  version: ${{ version }}
+
+source:
+  # This tells the build system that the source for this package
+  # is the pre-built tarball from our Docker build.
+  path: ../../../sources/octave-build-static-remove-fwasm-exceptions.tar.bz2
+
+build:
+  number: 1
+
+requirements:
+  # This package has no build-time requirements because it's pre-compiled.
+  build:
+    []
+  # We still need to declare the runtime dependency on the emscripten-abi
+  # that we discovered earlier.
+  host:
+    - emscripten-abi ==3.1.73
+  run:
+    - emscripten-abi ==3.1.73
+
+about:
+  summary: "A pre-compiled, static build of GNU Octave 7.2.0 for WebAssembly." 

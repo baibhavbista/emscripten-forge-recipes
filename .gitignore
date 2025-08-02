@@ -10,7 +10,10 @@ Untitled.ipynb
 # pixi folder
 .pixi/
 # rattler-build output folder
+pixi.lock
 output/
 
 # emscripten forge install
 emscripten_forge_emsdk_install/
+
+sources/

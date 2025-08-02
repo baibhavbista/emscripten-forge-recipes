@@ -1,3 +1,5 @@
+#!/bin/bash
+set -ex
 
 mkdir build
 cd build
@@ -8,7 +10,7 @@ emcmake cmake .. \
     -DCMAKE_PREFIX_PATH=$PREFIX \
     -DCMAKE_INSTALL_PREFIX=$PREFIX \
     -DCMAKE_FIND_ROOT_PATH=$PREFIX \
-    -DXEUS_BUILD_SHARED_LIBS=ON \
+    -DXEUS_BUILD_SHARED_LIBS=OFF \
     -DXEUS_BUILD_STATIC_LIBS=ON
 
 # Build & Install step

@@ -1,0 +1,5 @@
+{
+    "argv": ["xoctave", "-f", "{connection_file}"],
+    "display_name": "Octave",
+    "language": "octave"
+}

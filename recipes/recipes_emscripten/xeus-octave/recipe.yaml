@@ -1,0 +1,57 @@
+context:
+  name: xeus-octave
+  version: 0.2.0
+
+package:
+  name: ${{ name }}-wasm
+  version: ${{ version }}
+
+source:
+  # Note: When using local path, patches are applied from within that directory
+  # path: /Users/baibhavbista/Documents/Work/GauntletAI/legacy-projects/xeus-octave
+  url: https://github.com/jupyter-xeus/xeus-octave/archive/refs/tags/v${{ version }}.tar.gz
+  # The sha256 will be re-calculated on the next build run.
+  sha256: 077a3cbf7dab8aeec400ec8f2458b51cb39778c9c6dd41db7fefa702bca7f082
+  patches:
+    - 0001-changes_since_d6046e5.patch
+
+build:
+  number: 4
+  # Ensure the build script has proper error handling
+  # script_env:
+  #   - CMAKE_ARGS
+
+requirements:
+  build:
+    - ${{ compiler('c') }}
+    - ${{ compiler('cxx') }}
+    - cmake
+    - make
+    - pkg-config
+  host:
+    - emscripten-abi ==3.1.73
+    - libuuid
+    - octave-build-static ==0.1.0
+    - xeus-lite >=4.0.0,<5.0
+    - xeus >=5.0.0,<6.0
+    - nlohmann_json
+    - zlib
+    - libpng
+
+about:
+  homepage: https://github.com/jupyter-xeus/xeus-octave
+  license: GPL-3.0-or-later
+  license_file: LICENSE
+  summary: 'A Jupyter kernel for GNU Octave, compiled for WebAssembly.'
+  description: |
+    xeus-octave is a Jupyter kernel for GNU Octave based on the xeus C++ library.
+    This WebAssembly build uses a self-contained Octave library compiled with
+    CLAPACK (f2c-based LAPACK).
+
+extra:
+  recipe-maintainers:
+    - Your Name Here
+  notes: |
+    Critical build notes:
+    - The octave package is now self-contained and provides all BLAS/LAPACK symbols.
+    - It is no longer necessary to link CLAPACK directly. 
