@@ -214,7 +214,6 @@ index 0000000..eb4a665
 +macro(xeus_wasm_compile_options target_name)
 +    target_compile_options(${target_name}
 +        PUBLIC
-+            -fwasm-exceptions
 +            -sWASM=1
 +            -sALLOW_MEMORY_GROWTH
 +            -sSTRICT=1
@@ -230,7 +229,6 @@ index 0000000..eb4a665
 +macro(xeus_wasm_link_options target_name env)
 +    target_link_options(${target_name}
 +        PUBLIC
-+            -fwasm-exceptions
 +            -sWASM=1
 +            -sALLOW_MEMORY_GROWTH
 +            -sSTRICT=1

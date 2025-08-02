@@ -362,8 +362,7 @@ echo "------------------------------------------"
 emcmake cmake ${CMAKE_ARGS} \
     -D CMAKE_BUILD_TYPE=Release \
     -D CMAKE_SYSTEM_NAME=Emscripten \
-    -D CMAKE_CXX_FLAGS="-fwasm-exceptions" \
-    -D CMAKE_EXE_LINKER_FLAGS="${OCTAVE_LDFLAGS} -fwasm-exceptions" \
+    -D CMAKE_EXE_LINKER_FLAGS="${OCTAVE_LDFLAGS}" \
     -D CMAKE_FIND_ROOT_PATH_MODE_PACKAGE=NEVER \
     -D XEUS_OCTAVE_BUILD_SHARED=OFF \
     -D XEUS_OCTAVE_BUILD_STATIC=ON \
@@ -378,6 +377,21 @@ emcmake cmake ${CMAKE_ARGS} \
     -D PNG_LIBRARY=$PREFIX/lib/libpng.a \
     -S . -B build
 
+# (Not sure if this is needed anymore)
+# --- Move shared libraries after config and before build ---
+# The cmake config step needs the .so files to exist to create the targets,
+# but the build/link step will incorrectly use them. We move them now to
+# ensure the static .a files are used during the final link.
+echo "--- Moving shared libraries to force static linking ---"
+if [ -f "$PREFIX/lib/libxeus.so" ]; then
+    mv "$PREFIX/lib/libxeus.so" "$PREFIX/lib/libxeus.so.bak"
+    echo "Moved libxeus.so to libxeus.so.bak"
+fi
+if [ -f "$PREFIX/lib/libxeus-lite.so" ]; then
+    mv "$PREFIX/lib/libxeus-lite.so" "$PREFIX/lib/libxeus-lite.so.bak"
+    echo "Moved libxeus-lite.so to libxeus-lite.so.bak"
+fi
+
 # Build with emmake
 echo "--- Building xeus-octave ---"
 emmake make -C build -j${CPU_COUNT}
@@ -385,5 +399,28 @@ emmake make -C build -j${CPU_COUNT}
 # Install the built files
 echo "--- Installing xeus-octave ---"
 make -C build install
+
+# --- Install kernel.json ---
+# kernel's argv[0] is a bit wrong here. It needs to be `$PREFIX/bin/xoctave`
+# We might also need to fix the `info/paths.json` inside of the archive. If you have issues, compare your output with https://github.com/baibhavbista/octave-xeus-lite/blob/6e76248b8add0e3851e70563e7294282f2d53e36/channels/local-channel/emscripten-wasm32/xeus-octave-wasm-0.2.0-h53eb3ed_4.tar.bz2
+echo "--- Installing kernel.json ---"
+KERNEL_INSTALL_DIR="$PREFIX/share/jupyter/kernels/xoctave"
+mkdir -p "$KERNEL_INSTALL_DIR"
+cp "$RECIPE_DIR/kernel.json" "$KERNEL_INSTALL_DIR/kernel.json"
+echo "Installed kernel.json to $KERNEL_INSTALL_DIR"
+
+
+
+# (like before, unsure if this is needed anymore)
+# --- Restore shared libraries ---
+echo "--- Restoring shared libraries ---"
+if [ -f "$PREFIX/lib/libxeus.so.bak" ]; then
+    mv "$PREFIX/lib/libxeus.so.bak" "$PREFIX/lib/libxeus.so"
+    echo "Restored libxeus.so"
+fi
+if [ -f "$PREFIX/lib/libxeus-lite.so.bak" ]; then
+    mv "$PREFIX/lib/libxeus-lite.so.bak" "$PREFIX/lib/libxeus-lite.so"
+    echo "Restored libxeus-lite.so"
+fi
 
 echo "Build completed successfully!"
