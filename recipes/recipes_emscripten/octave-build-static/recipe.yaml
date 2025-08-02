@@ -9,7 +9,7 @@ package:
 source:
   # This tells the build system that the source for this package
   # is the pre-built tarball from our Docker build.
-  path: ../../../sources/octave-build-static-new-emsdk.tar.bz2
+  path: ../../../sources/octave-build-static-remove-fwasm-exceptions.tar.bz2
 
 build:
   number: 1

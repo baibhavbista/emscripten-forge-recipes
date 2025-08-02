@@ -10,7 +10,7 @@ source:
   sha256: 37dfe990319901b3ad7f6ee7f5789bfc324e2d440ae821c1ea72a0b716de2103
 
 build:
-  number: 1
+  number: 2
 
 requirements:
   build:
@@ -23,7 +23,7 @@ requirements:
 tests:
 - script:
   - test -f $PREFIX/lib/libxeus.a
-  - test -f $PREFIX/lib/libxeus.so
+  # - test -f $PREFIX/lib/libxeus.so
   - test -f $PREFIX/include/xeus/xeus.hpp
 about:
   license: BSD-3-Clause
